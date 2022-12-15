@@ -95,6 +95,7 @@ const MessagePanel = ({user, onMessage}) => {
 const Chat = ({socket}) => {
     const [selectedUser, setSelectedUser] = React.useState(null);
     const [users, setUsers] = React.useState([]);
+    const refSelectedUser = React.useRef(null);
 
     React.useEffect(() => {
         socket.on("connect", () => {
@@ -170,7 +171,7 @@ const Chat = ({socket}) => {
                             content,
                             fromSelf: false,
                         }];
-                        if (user.userID !== (selectedUser && selectedUser.userID)) {
+                        if (user.userID !== ((selectedUser && selectedUser.userID) || refSelectedUser.current.userID)) {
                             user.hasNewMessages = true;
                         }
                     }
@@ -192,6 +193,7 @@ const Chat = ({socket}) => {
     const onSelectUser = (user) => {
         user.hasNewMessages = false;
         setSelectedUser(user);
+        refSelectedUser.current = user;
     }
 
     const onMessage = (content) => {
