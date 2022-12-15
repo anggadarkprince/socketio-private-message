@@ -4,7 +4,7 @@ const SelectUsername = ({onSelectUsername}) => {
     const [username, setUsername] = React.useState('');
 
     return (
-        <div className="my-5">
+        <div className="my-2">
             <form id="username-form" onSubmit={(e) => {
                 e.preventDefault();
                 onSelectUsername(username);
@@ -61,18 +61,18 @@ const MessagePanel = ({user, onMessage}) => {
                 <UserStatus connected={user.connected} />
             </div>
 
-            <ul className="list-group py-3">
+            <div className="py-3">
                 {user.messages.map((item, index) => {
                     return (
-                        <li key={`message-${user.userID}-${index}`} className={`list-group-item list-group-item-${item.fromSelf ? 'primary' : 'warning'} mb-2 w-50${item.fromSelf ? ' ms-auto' : ''}`}>
+                        <div key={`message-${user.userID}-${index}`} className={`alert alert-${item.fromSelf ? 'primary' : 'warning'} mb-2 w-50${item.fromSelf ? ' ms-auto' : ''}`}>
                             <p className="fw-bold mb-0">{item.content}</p>
                             <small className="text-muted">
                                 {item.fromSelf ? "(yourself)" : user.username}
                             </small>
-                        </li>
+                        </div>
                     )
                 })}
-            </ul>
+            </div>
 
             <form onSubmit={(e) => {
                 e.preventDefault();
@@ -117,20 +117,21 @@ const Chat = ({socket}) => {
         });
 
         const initReactiveProperties = (user) => {
-            user.connected = true;
             user.messages = [];
             user.hasNewMessages = false;
         };
 
         // get all users on the first time
-        socket.on("users", (users) => {
-            console.log('user list', users);
-            users.forEach((user) => {
-                user.self = user.userID === socket.id;
-                initReactiveProperties(user);
+        socket.on("users", (userData) => {
+            console.log('user list', userData);
+            const userList = [];
+            userData.forEach((userItem) => {
+                userItem.self = userItem.userID === socket.userID;
+                initReactiveProperties(userItem);
+                userList.push(userItem);
             });
             // put the current user first, and sort by username
-            const userList = users.sort((a, b) => {
+            userList.sort((a, b) => {
                 if (a.self) return -1;
                 if (b.self) return 1;
                 if (a.username < b.username) return -1;
@@ -142,8 +143,18 @@ const Chat = ({socket}) => {
         // listen when new user joined
         socket.on("user connected", (user) => {
             console.log('user connected', user);
-            initReactiveProperties(user);
             setUsers(prevState => {
+                let userReturned = false;
+                const userList = prevState.map(existingUser => {
+                    if (existingUser.userID === user.userID) {
+                        existingUser.connected = userReturned = true;
+                    }
+                    return existingUser;
+                });
+                if (userReturned) {
+                    return userList;
+                }
+                initReactiveProperties(user);
                 return [...prevState, user];
             });
         });
@@ -162,19 +173,21 @@ const Chat = ({socket}) => {
         });
 
         // listen when other user send message
-        socket.on("private message", ({content, from}) => {
+        socket.on("private message", ({content, from, to}) => {
             console.log('receive message', {content, from});
             setUsers(prevState => {
                 return prevState.map(user => {
-                    if (user.userID === from) {
+                    const fromSelf = socket.userID === from;
+                    if (user.userID === (fromSelf ? to : from)) {
                         user.messages = [...user.messages, {
                             content,
-                            fromSelf: false,
+                            fromSelf,
                         }];
-                        if (user.userID !== ((selectedUser && selectedUser.userID) || refSelectedUser.current.userID)) {
+                        if (user.userID !== ((selectedUser && selectedUser.userID) || (refSelectedUser && refSelectedUser.current && refSelectedUser.current.userID))) {
                             user.hasNewMessages = true;
                         }
                     }
+                    console.log(user);
                     return user;
                 });
             });
@@ -254,10 +267,28 @@ class App extends React.Component {
 
         this.state = {
             usernameSelected: false,
-            username: false,
+            username: '',
         };
 
         this.onSelectUsername = this.onSelectUsername.bind(this);
+    }
+
+    componentDidMount() {
+        const sessionID = localStorage.getItem("sessionID");
+        if (sessionID) {
+            this.setState({usernameSelected: true});
+            this.socket.auth = {sessionID};
+            this.socket.connect();
+        }
+        this.socket.on("session", ({sessionID, userID}) => {
+            console.log('New session', {sessionID, userID});
+            // attach the session ID to the next reconnection attempts
+            this.socket.auth = {sessionID};
+            // store it in the localStorage
+            localStorage.setItem("sessionID", sessionID);
+            // save the ID of the user
+            this.socket.userID = userID;
+        });
     }
 
     onSelectUsername(username) {
@@ -271,7 +302,8 @@ class App extends React.Component {
 
     render() {
         return (
-            <div className="container">
+            <div className="container my-4">
+                <h3 className="mb-3">Private Messaging</h3>
                 {
                     this.state.usernameSelected
                         ? <Chat socket={this.socket}>chat</Chat>
