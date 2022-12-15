@@ -4,6 +4,7 @@ import {Server} from "socket.io";
 import * as cors from "cors";
 import crypto from "crypto";
 import {InMemorySessionStore} from "./sessionStore.mjs";
+import {InMemoryMessageStore} from "./messageStore.mjs";
 
 const app = express();
 app.use(cors.default());
@@ -16,6 +17,7 @@ const io = new Server(httpServer, {
 });
 
 const sessionStore = new InMemorySessionStore();
+const messageStore = new InMemoryMessageStore();
 const randomId = () => crypto.randomBytes(8).toString("hex");
 
 io.use((socket, next) => {
@@ -61,11 +63,22 @@ io.on("connection", (socket) => {
 
     // fetch existing users send to connected user
     const users = [];
+    const messagesPerUser = new Map();
+    messageStore.findMessagesForUser(socket.userID).forEach((message) => {
+        const {from, to} = message;
+        const otherUser = socket.userID === from ? to : from;
+        if (messagesPerUser.has(otherUser)) {
+            messagesPerUser.get(otherUser).push(message);
+        } else {
+            messagesPerUser.set(otherUser, [message]);
+        }
+    });
     sessionStore.findAllSessions().forEach((session) => {
         users.push({
             userID: session.userID,
             username: session.username,
             connected: session.connected,
+            messages: messagesPerUser.get(session.userID) || [],
         });
     });
     console.log('user lists:', users);
@@ -77,15 +90,18 @@ io.on("connection", (socket) => {
         userID: socket.userID,
         username: socket.username,
         connected: true,
+        messages: [],
     });
 
     // forward the private message to the right recipient (and to other tabs of the sender)
     socket.on("private message", ({content, to}) => {
-        socket.to(to).to(socket.userID).emit("private message", {
+        const message = {
             content,
             from: socket.userID,
             to,
-        });
+        };
+        socket.to(to).to(socket.userID).emit("private message", message);
+        messageStore.saveMessage(message);
     });
 
     // notify users upon disconnection

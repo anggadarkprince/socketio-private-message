@@ -117,7 +117,6 @@ const Chat = ({socket}) => {
         });
 
         const initReactiveProperties = (user) => {
-            user.messages = [];
             user.hasNewMessages = false;
         };
 
@@ -126,9 +125,27 @@ const Chat = ({socket}) => {
             console.log('user list', userData);
             const userList = [];
             userData.forEach((userItem) => {
-                userItem.self = userItem.userID === socket.userID;
-                initReactiveProperties(userItem);
-                userList.push(userItem);
+                userItem.messages.forEach((message) => {
+                    message.fromSelf = message.from === socket.userID;
+                });
+
+                // update state when sender restored after disconnected
+                let foundExisting = false;
+                for (let i = 0; i < users.length; i++) {
+                    const existingUser = {...users[i]};
+                    if (existingUser.userID === userItem.userID) {
+                        existingUser.connected = userItem.connected;
+                        existingUser.messages = userItem.messages;
+                        userList.push(existingUser);
+                        foundExisting = true;
+                    }
+                }
+
+                if (!foundExisting) {
+                    userItem.self = userItem.userID === socket.userID;
+                    initReactiveProperties(userItem);
+                    userList.push(userItem);
+                }
             });
             // put the current user first, and sort by username
             userList.sort((a, b) => {
@@ -288,6 +305,11 @@ class App extends React.Component {
             localStorage.setItem("sessionID", sessionID);
             // save the ID of the user
             this.socket.userID = userID;
+        });
+        this.socket.on("connect_error", (err) => {
+            if (err.message === "invalid username") {
+                this.setState({usernameSelected: false});
+            }
         });
     }
 
